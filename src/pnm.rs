@@ -98,6 +98,9 @@ impl GrayData {
             GrayData::U16(v) => v.len(),
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
 }
 /// RGB data for PPM files
 #[derive(Debug, Clone, PartialEq)]
@@ -112,6 +115,9 @@ impl RgbData {
             RgbData::U8(v) => v.len(),
             RgbData::U16(v) => v.len(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
     }
 }
 
@@ -359,8 +365,7 @@ impl PnmContent for Pgm {
             GrayData::U8(data) => w.write_all(data)?,
             GrayData::U16(data) => data
                 .iter()
-                .map(|pixel| w.write_u16::<BigEndian>(*pixel))
-                .collect::<Result<(), _>>()?,
+                .try_for_each(|pixel| w.write_u16::<BigEndian>(*pixel))?,
         }
         Ok(())
     }
@@ -430,7 +435,7 @@ impl PnmContent for Ppm {
             RgbData::U8(data)
         } else {
             let mut data: Vec<[u16; 3]> = Vec::with_capacity(width * height);
-            r.read_u16_into::<BigEndian>(&mut bytemuck::cast_slice_mut(&mut data))?;
+            r.read_u16_into::<BigEndian>(bytemuck::cast_slice_mut(&mut data))?;
             if data.len() != width * height {
                 return Err(PnmError::InvalidPixel(format!(
                     "data length mismatch: expected {}, got {}",
@@ -488,13 +493,12 @@ impl PnmContent for Ppm {
             RgbData::U8(data) => w.write_all(bytemuck::cast_slice(data))?,
             RgbData::U16(data) => data
                 .iter()
-                .map(|p| w.write_all(bytemuck::cast_slice(p)))
-                .collect::<Result<(), _>>()?,
+                .try_for_each(|p| w.write_all(bytemuck::cast_slice(p)))?,
         }
         Ok(())
     }
 }
-trait MaxValueTrait: Sized {}
+pub trait MaxValueTrait: Sized {}
 impl MaxValueTrait for () {}
 impl MaxValueTrait for NonZeroU16 {}
 
@@ -686,7 +690,7 @@ impl Pnm {
                 let line = lines
                     .next()
                     .ok_or(PnmError::UnexpectedEof(EofAt::MaxValue))??;
-                if skip(&line.trim()) {
+                if skip(line.trim()) {
                     continue;
                 }
                 if let Ok(value) = line.trim().parse::<NonZeroU16>() {
