@@ -76,10 +76,12 @@ pub trait PnmContent {
 /// 0: black, 1: white
 pub struct Pbm;
 /// Portable graymap format (PGM)
-/// 0: black, 255: white
+/// 0: black, 255: white (8-bit)
+/// 0: black, 65535: white (16-bit)
 pub struct Pgm;
 /// Portable pixmap format (PPM)
-/// Red, Green, Blue: 0-255
+/// Red, Green, Blue: 0-255 (8-bit)
+/// Red, Green, Blue: 0-65535 (16-bit)
 pub struct Ppm;
 
 /// Gray data enum for PGM files
