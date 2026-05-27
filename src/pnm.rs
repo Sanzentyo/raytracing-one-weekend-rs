@@ -1,8 +1,20 @@
 use bitvec::prelude::{BitVec, Msb0};
+use byteorder::{BigEndian, ReadBytesExt, WriteBytesExt as _};
 use std::fmt::Debug;
 use std::io::{BufRead, Read, Write};
+use std::num::NonZeroU16;
 
 use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum EofAt {
+    #[error("kind")]
+    Kind,
+    #[error("size")]
+    Size,
+    #[error("max value")]
+    MaxValue,
+}
 
 #[derive(Error, Debug)]
 pub enum PnmError {
@@ -10,8 +22,8 @@ pub enum PnmError {
     #[error("unknown PNM kind: {0}")]
     UnknownKind(String),
     /// ヘッダ読み込み中に予期せず EOF
-    #[error("unexpected EOF while reading header")]
-    UnexpectedEof,
+    #[error("unexpected EOF while reading {0}")]
+    UnexpectedEof(EofAt),
     /// width/height 行のパース失敗
     #[error("invalid header: {0}")]
     InvalidHeader(String),
@@ -32,9 +44,20 @@ pub type PnmResult<T> = Result<T, PnmError>;
 /// データ形式(PBM/PGM/PPM)ごとのI/Oを集約するトレイト
 pub trait PnmContent {
     type DataType: Debug;
+    type MaxValue: MaxValueTrait;
 
-    fn read_ascii<R: BufRead>(r: R, width: usize, height: usize) -> PnmResult<Self::DataType>;
-    fn read_binary<R: Read>(r: R, width: usize, height: usize) -> PnmResult<Self::DataType>;
+    fn read_ascii<R: BufRead>(
+        r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType>;
+    fn read_binary<R: Read>(
+        r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType>;
     fn write_ascii<W: Write>(
         data: &Self::DataType,
         w: &mut W,
@@ -59,11 +82,48 @@ pub struct Pgm;
 /// Red, Green, Blue: 0-255
 pub struct Ppm;
 
+/// Gray data enum for PGM files
+#[derive(Debug, Clone, PartialEq)]
+pub enum GrayData {
+    U8(Vec<u8>),
+    U16(Vec<u16>),
+}
+
+impl GrayData {
+    pub fn len(&self) -> usize {
+        match self {
+            GrayData::U8(v) => v.len(),
+            GrayData::U16(v) => v.len(),
+        }
+    }
+}
+/// RGB data for PPM files
+#[derive(Debug, Clone, PartialEq)]
+pub enum RgbData {
+    U8(Vec<[u8; 3]>),
+    U16(Vec<[u16; 3]>),
+}
+
+impl RgbData {
+    pub fn len(&self) -> usize {
+        match self {
+            RgbData::U8(v) => v.len(),
+            RgbData::U16(v) => v.len(),
+        }
+    }
+}
+
 impl PnmContent for Pbm {
     type DataType = BitVec<u8, Msb0>;
+    type MaxValue = ();
 
     /// Read a PBM file from ASCII format(P1)
-    fn read_ascii<R: BufRead>(r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+    fn read_ascii<R: BufRead>(
+        r: R,
+        _maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
         let mut data = BitVec::with_capacity(width * height);
         for line in r.lines() {
             let line = line?;
@@ -91,7 +151,12 @@ impl PnmContent for Pbm {
     }
 
     /// Read a PBM file from binary format(P4)
-    fn read_binary<R: Read>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+    fn read_binary<R: Read>(
+        mut r: R,
+        _maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
         let row_bytes = width.div_ceil(u8::BITS as usize);
         let mut data = BitVec::with_capacity(width * height);
         let mut buf = vec![0u8; row_bytes];
@@ -172,18 +237,42 @@ impl PnmContent for Pbm {
 }
 
 impl PnmContent for Pgm {
-    type DataType = Vec<u8>;
+    type DataType = GrayData;
+    type MaxValue = NonZeroU16;
 
     /// Read a PGM file in ASCII format.(P5)
-    fn read_ascii<R: BufRead>(r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
-        let mut data = Vec::with_capacity(width * height);
-        for line in r.lines() {
-            let line = line?;
-            for number_str in line.split_whitespace() {
-                let num = number_str.parse::<u8>()?;
-                data.push(num);
+    fn read_ascii<R: BufRead>(
+        r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
+        let data = match maxval.get() {
+            1..=255 => {
+                let mut data = Vec::with_capacity(width * height);
+                for line in r.lines() {
+                    let line = line?;
+
+                    for number_str in line.split_whitespace() {
+                        let num = number_str.parse::<u8>()?;
+                        data.push(num);
+                    }
+                }
+                GrayData::U8(data)
             }
-        }
+            256..=65535 => {
+                let mut data = Vec::with_capacity(width * height);
+                for line in r.lines() {
+                    let line = line?;
+                    for number_str in line.split_whitespace() {
+                        let num = number_str.parse::<u16>()?;
+                        data.push(num);
+                    }
+                }
+                GrayData::U16(data)
+            }
+            0 => unreachable!("maxval must be greater than 0"),
+        };
         if data.len() != width * height {
             return Err(PnmError::InvalidPixel(format!(
                 "data length mismatch: expected {}, got {}",
@@ -195,16 +284,35 @@ impl PnmContent for Pgm {
     }
 
     /// Read a PGM file in binary format.(P2)
-    fn read_binary<R: Read>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
-        let mut data = Vec::with_capacity(width * height);
-        r.read_to_end(&mut data)?;
-        if data.len() != width * height {
-            return Err(PnmError::InvalidPixel(format!(
-                "data length mismatch: expected {}, got {}",
-                width * height,
-                data.len()
-            )));
-        }
+    fn read_binary<R: Read>(
+        mut r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
+        let data = if maxval.get() <= u8::MAX as u16 {
+            let mut data = Vec::with_capacity(width * height);
+            r.read_to_end(&mut data)?;
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            GrayData::U8(data)
+        } else {
+            let mut data = Vec::with_capacity(width * height);
+            r.read_u16_into::<BigEndian>(&mut data)?;
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            GrayData::U16(data)
+        };
         Ok(data)
     }
 
@@ -213,16 +321,28 @@ impl PnmContent for Pgm {
         data: &Self::DataType,
         w: &mut W,
         width: usize,
-        height: usize,
+        _height: usize,
     ) -> PnmResult<()> {
-        debug_assert!(data.len() == width * height);
-        for (i, pixel) in data.iter().enumerate() {
-            if i % width == 0 {
+        match data {
+            GrayData::U8(data) => {
+                for (i, pixel) in data.iter().enumerate() {
+                    if i % width == 0 {
+                        writeln!(w)?;
+                    }
+                    write!(w, "{} ", pixel)?;
+                }
                 writeln!(w)?;
             }
-            write!(w, "{} ", pixel)?;
+            GrayData::U16(data) => {
+                for (i, pixel) in data.iter().enumerate() {
+                    if i % width == 0 {
+                        writeln!(w)?;
+                    }
+                    write!(w, "{} ", pixel)?;
+                }
+                writeln!(w)?;
+            }
         }
-        writeln!(w)?;
         Ok(())
     }
 
@@ -230,48 +350,94 @@ impl PnmContent for Pgm {
     fn write_binary<W: Write>(
         data: &Self::DataType,
         w: &mut W,
-        width: usize,
-        height: usize,
+        _width: usize,
+        _height: usize,
     ) -> PnmResult<()> {
-        debug_assert!(data.len() == width * height);
-        for pixel in data {
-            w.write_all(&[*pixel])?;
+        match data {
+            GrayData::U8(data) => w.write_all(data)?,
+            GrayData::U16(data) => data
+                .iter()
+                .map(|pixel| w.write_u16::<BigEndian>(*pixel))
+                .collect::<Result<(), _>>()?,
         }
         Ok(())
     }
 }
 
 impl PnmContent for Ppm {
-    type DataType = Vec<[u8; 3]>;
+    type DataType = RgbData;
+    type MaxValue = NonZeroU16;
 
     /// Read a PPM file in ASCII format.(P3)
-    fn read_ascii<R: BufRead>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
-        let mut data = Vec::with_capacity(width * height);
-        for _ in 0..width * height {
-            let mut pixel = [0u8; 3];
-            r.read_exact(&mut pixel)?;
-            data.push(pixel);
-        }
-        if data.len() != width * height {
-            return Err(PnmError::InvalidPixel(format!(
-                "data length mismatch: expected {}, got {}",
-                width * height,
-                data.len()
-            )));
-        }
+    fn read_ascii<R: BufRead>(
+        mut r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
+        let data = if maxval.get() <= u8::MAX as u16 {
+            let mut data = Vec::with_capacity(width * height);
+            for _ in 0..width * height {
+                let mut pixel = [0u8; 3];
+                r.read_exact(&mut pixel)?;
+                data.push(pixel);
+            }
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            RgbData::U8(data)
+        } else {
+            let mut data = Vec::with_capacity(width * height);
+            for _ in 0..width * height {
+                let mut pixel = [0u16; 3];
+                r.read_exact(bytemuck::cast_slice_mut(&mut pixel))?;
+                data.push(pixel);
+            }
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            RgbData::U16(data)
+        };
         Ok(data)
     }
 
-    fn read_binary<R: Read>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
-        let mut data = vec![[0u8; 3]; width * height];
-        r.read_exact(bytemuck::cast_slice_mut(&mut data))?;
-        if data.len() != width * height {
-            return Err(PnmError::InvalidPixel(format!(
-                "data length mismatch: expected {}, got {}",
-                width * height,
-                data.len()
-            )));
-        }
+    fn read_binary<R: Read>(
+        mut r: R,
+        maxval: Self::MaxValue,
+        width: usize,
+        height: usize,
+    ) -> PnmResult<Self::DataType> {
+        let data = if maxval.get() <= u8::MAX as u16 {
+            let mut data = vec![[0u8; 3]; width * height];
+            r.read_exact(bytemuck::cast_slice_mut(&mut data))?;
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            RgbData::U8(data)
+        } else {
+            let mut data: Vec<[u16; 3]> = Vec::with_capacity(width * height);
+            r.read_u16_into::<BigEndian>(&mut bytemuck::cast_slice_mut(&mut data))?;
+            if data.len() != width * height {
+                return Err(PnmError::InvalidPixel(format!(
+                    "data length mismatch: expected {}, got {}",
+                    width * height,
+                    data.len()
+                )));
+            }
+            RgbData::U16(data)
+        };
         Ok(data)
     }
 
@@ -282,14 +448,29 @@ impl PnmContent for Ppm {
         height: usize,
     ) -> PnmResult<()> {
         debug_assert!(data.len() == width * height);
-        for row in data.chunks(width) {
-            for (i, [r, g, b]) in row.iter().enumerate() {
-                write!(w, "{} {} {}", r, g, b)?;
-                if i < width - 1 {
-                    write!(w, " ")?;
+        match data {
+            RgbData::U8(data) => {
+                for row in data.chunks(width) {
+                    for (i, [r, g, b]) in row.iter().enumerate() {
+                        write!(w, "{} {} {}", r, g, b)?;
+                        if i < width - 1 {
+                            write!(w, " ")?;
+                        }
+                    }
+                    writeln!(w)?;
                 }
             }
-            writeln!(w)?;
+            RgbData::U16(data) => {
+                for row in data.chunks(width) {
+                    for (i, [r, g, b]) in row.iter().enumerate() {
+                        write!(w, "{} {} {}", r, g, b)?;
+                        if i < width - 1 {
+                            write!(w, " ")?;
+                        }
+                    }
+                    writeln!(w)?;
+                }
+            }
         }
         Ok(())
     }
@@ -301,27 +482,38 @@ impl PnmContent for Ppm {
         height: usize,
     ) -> PnmResult<()> {
         debug_assert!(data.len() == width * height);
-        let buf = bytemuck::cast_slice(data);
-        w.write_all(buf)?;
+        match data {
+            RgbData::U8(data) => w.write_all(bytemuck::cast_slice(data))?,
+            RgbData::U16(data) => data
+                .iter()
+                .map(|p| w.write_all(bytemuck::cast_slice(p)))
+                .collect::<Result<(), _>>()?,
+        }
         Ok(())
     }
 }
+trait MaxValueTrait: Sized {}
+impl MaxValueTrait for () {}
+impl MaxValueTrait for NonZeroU16 {}
 
 /// PnmKindTrait は Content × Encoding の組み合わせを表すトレイト
 /// 具体的な Content と Encoding の組み合わせを表すために、PnmKind を使用する
 pub trait PnmKindTrait {
     type Content: PnmContent;
+    type MaxValue: MaxValueTrait;
+
     const KIND: PnmKind;
 
     fn read_data<R: BufRead>(
         r: R,
+        maxval: <Self::Content as PnmContent>::MaxValue,
         width: usize,
         height: usize,
     ) -> PnmResult<<Self::Content as PnmContent>::DataType> {
         if Self::KIND.is_ascii() {
-            Self::Content::read_ascii(r, width, height)
+            Self::Content::read_ascii(r, maxval, width, height)
         } else {
-            Self::Content::read_binary(r, width, height)
+            Self::Content::read_binary(r, maxval, width, height)
         }
     }
 
@@ -343,36 +535,42 @@ pub trait PnmKindTrait {
 pub struct P1;
 impl PnmKindTrait for P1 {
     type Content = Pbm;
+    type MaxValue = ();
     const KIND: PnmKind = PnmKind::P1;
 }
 
 pub struct P2;
 impl PnmKindTrait for P2 {
     type Content = Pgm;
+    type MaxValue = NonZeroU16;
     const KIND: PnmKind = PnmKind::P2;
 }
 
 pub struct P3;
 impl PnmKindTrait for P3 {
     type Content = Ppm;
+    type MaxValue = NonZeroU16;
     const KIND: PnmKind = PnmKind::P3;
 }
 
 pub struct P4;
 impl PnmKindTrait for P4 {
     type Content = Pbm;
+    type MaxValue = ();
     const KIND: PnmKind = PnmKind::P4;
 }
 
 pub struct P5;
 impl PnmKindTrait for P5 {
     type Content = Pgm;
+    type MaxValue = NonZeroU16;
     const KIND: PnmKind = PnmKind::P5;
 }
 
 pub struct P6;
 impl PnmKindTrait for P6 {
     type Content = Ppm;
+    type MaxValue = NonZeroU16;
     const KIND: PnmKind = PnmKind::P6;
 }
 
@@ -383,6 +581,7 @@ impl PnmKindTrait for P6 {
 pub struct PnmBuf<T: PnmKindTrait> {
     pub width: usize,
     pub height: usize,
+    pub max_value: T::MaxValue,
     pub comments: Vec<String>,
     pub data: <T::Content as PnmContent>::DataType,
 }
@@ -391,12 +590,14 @@ impl<T: PnmKindTrait> PnmBuf<T> {
     pub fn new(
         width: usize,
         height: usize,
+        max_value: T::MaxValue,
         comments: Vec<String>,
         data: <T::Content as PnmContent>::DataType,
     ) -> Self {
         Self {
             width,
             height,
+            max_value,
             comments,
             data,
         }
@@ -433,7 +634,7 @@ impl Pnm {
     pub fn from_reader<R: BufRead>(mut reader: R) -> PnmResult<Self> {
         let mut comments = Vec::new();
 
-        let skip = |line: &str, comments: &mut Vec<String>| -> bool {
+        let mut skip = |line: &str| -> bool {
             if line.is_empty() {
                 true
             } else if let Some(stripped) = line.strip_prefix('#') {
@@ -448,9 +649,9 @@ impl Pnm {
         let pnm_kind = {
             let mut lines = (&mut reader).lines();
             loop {
-                let line = lines.next().ok_or(PnmError::UnexpectedEof)??;
+                let line = lines.next().ok_or(PnmError::UnexpectedEof(EofAt::Kind))??;
                 let trimmed = line.trim().to_string();
-                if skip(&trimmed, &mut comments) {
+                if skip(&trimmed) {
                     continue;
                 }
                 use std::str::FromStr;
@@ -462,9 +663,9 @@ impl Pnm {
         let (width, height) = {
             let mut lines = (&mut reader).lines();
             loop {
-                let line = lines.next().ok_or(PnmError::UnexpectedEof)??;
+                let line = lines.next().ok_or(PnmError::UnexpectedEof(EofAt::Size))??;
                 let trimmed = line.trim().to_string();
-                if skip(&trimmed, &mut comments) {
+                if skip(&trimmed) {
                     continue;
                 }
                 let [w, h]: [usize; 2] = trimmed
@@ -478,43 +679,66 @@ impl Pnm {
             }
         };
 
+        let maxval = if pnm_kind.is_pbm() {
+            None
+        } else {
+            let mut lines = (&mut reader).lines();
+            loop {
+                let line = lines
+                    .next()
+                    .ok_or(PnmError::UnexpectedEof(EofAt::MaxValue))??;
+                if skip(&line.trim()) {
+                    continue;
+                }
+                if let Ok(value) = line.trim().parse::<NonZeroU16>() {
+                    break Some(value);
+                }
+            }
+        };
+
         // データ読み込みは各 Kind に委譲
         match pnm_kind {
             PnmKind::P1 => Ok(Pnm::AsciiPbm(PnmBuf::new(
                 width,
                 height,
+                (),
                 comments,
-                P1::read_data(&mut reader, width, height)?,
+                P1::read_data(&mut reader, (), width, height)?,
             ))),
             PnmKind::P2 => Ok(Pnm::AsciiPgm(PnmBuf::new(
                 width,
                 height,
+                maxval.unwrap(),
                 comments,
-                P2::read_data(&mut reader, width, height)?,
+                P2::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
             PnmKind::P3 => Ok(Pnm::AsciiPpm(PnmBuf::new(
                 width,
                 height,
+                maxval.unwrap(),
                 comments,
-                P3::read_data(&mut reader, width, height)?,
+                P3::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
             PnmKind::P4 => Ok(Pnm::BinaryPbm(PnmBuf::new(
                 width,
                 height,
+                (),
                 comments,
-                P4::read_data(&mut reader, width, height)?,
+                P4::read_data(&mut reader, (), width, height)?,
             ))),
             PnmKind::P5 => Ok(Pnm::BinaryPgm(PnmBuf::new(
                 width,
                 height,
+                maxval.unwrap(),
                 comments,
-                P5::read_data(&mut reader, width, height)?,
+                P5::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
             PnmKind::P6 => Ok(Pnm::BinaryPpm(PnmBuf::new(
                 width,
                 height,
+                maxval.unwrap(),
                 comments,
-                P6::read_data(&mut reader, width, height)?,
+                P6::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
         }
     }
