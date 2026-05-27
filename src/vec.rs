@@ -3,6 +3,7 @@ use num_traits::Num;
 pub trait VecElem: Copy + Num {}
 impl<T: Copy + Num> VecElem for T {}
 
+#[derive(Debug, Clone, Copy)]
 pub struct Vec3<T: VecElem> {
     pub x: T,
     pub y: T,

@@ -1,5 +1,4 @@
-use anyhow::{Result, anyhow};
-use raytracing_one_weekend_rs::vec::Vec3;
+use anyhow::Result;
 
 fn main() -> Result<()> {
     
