@@ -23,6 +23,8 @@ pub enum PnmError {
     CommentInData,
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("parse error: {0}")]
+    ParseError(#[from] std::num::ParseIntError),
 }
 
 pub type PnmResult<T> = Result<T, PnmError>;
@@ -82,6 +84,9 @@ impl PnmContent for Pbm {
                 }
             }
         }
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel("data length mismatch".to_string()));
+        }
         Ok(data)
     }
 
@@ -93,12 +98,20 @@ impl PnmContent for Pbm {
         for _ in 0..height {
             r.read_exact(&mut buf)?;
             for byte in &buf {
-                for i in (0..8).rev() {
+                for i in (0..u8::BITS).rev() {
+                    // パディング分を無視
                     if data.len() < width * height {
                         data.push((byte >> i) & 1 == 1);
                     }
                 }
             }
+        }
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel(format!(
+                "data length mismatch: expected {}, got {}",
+                width * height,
+                data.len()
+            )));
         }
         Ok(data)
     }
@@ -140,9 +153,9 @@ impl PnmContent for Pbm {
             let mut byte = 0u8;
             let mut bit_count = 0usize;
             for bit in row_bits {
-                byte |= (u8::from(*bit)) << (7 - bit_count);
+                byte |= (u8::from(*bit)) << (u8::BITS as usize - 1 - bit_count);
                 bit_count += 1;
-                if bit_count == 8 {
+                if bit_count == u8::BITS as usize {
                     w.write_all(&[byte])?;
                     byte = 0;
                     bit_count = 0;
@@ -161,68 +174,141 @@ impl PnmContent for Pbm {
 impl PnmContent for Pgm {
     type DataType = Vec<u8>;
 
-    fn read_ascii<R: BufRead>(_r: R, _width: usize, _height: usize) -> PnmResult<Self::DataType> {
-        unimplemented!()
+    /// Read a PGM file in ASCII format.(P5)
+    fn read_ascii<R: BufRead>(r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+        let mut data = Vec::with_capacity(width * height);
+        for line in r.lines() {
+            let line = line?;
+            for number_str in line.split_whitespace() {
+                let num = number_str.parse::<u8>()?;
+                data.push(num);
+            }
+        }
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel(format!(
+                "data length mismatch: expected {}, got {}",
+                width * height,
+                data.len()
+            )));
+        }
+        Ok(data)
     }
 
-    fn read_binary<R: Read>(_r: R, _width: usize, _height: usize) -> PnmResult<Self::DataType> {
-        unimplemented!()
+    /// Read a PGM file in binary format.(P2)
+    fn read_binary<R: Read>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+        let mut data = Vec::with_capacity(width * height);
+        r.read_to_end(&mut data)?;
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel(format!(
+                "data length mismatch: expected {}, got {}",
+                width * height,
+                data.len()
+            )));
+        }
+        Ok(data)
     }
 
+    /// Write a PGM file in ASCII format.(P5)
     fn write_ascii<W: Write>(
-        _data: &Self::DataType,
-        _w: &mut W,
-        _width: usize,
-        _height: usize,
+        data: &Self::DataType,
+        w: &mut W,
+        width: usize,
+        height: usize,
     ) -> PnmResult<()> {
-        unimplemented!()
+        debug_assert!(data.len() == width * height);
+        for (i, pixel) in data.iter().enumerate() {
+            if i % width == 0 {
+                writeln!(w)?;
+            }
+            write!(w, "{} ", pixel)?;
+        }
+        writeln!(w)?;
+        Ok(())
     }
 
+    /// Write a PGM file in binary format.(P2)
     fn write_binary<W: Write>(
-        _data: &Self::DataType,
-        _w: &mut W,
-        _width: usize,
-        _height: usize,
+        data: &Self::DataType,
+        w: &mut W,
+        width: usize,
+        height: usize,
     ) -> PnmResult<()> {
-        unimplemented!()
+        debug_assert!(data.len() == width * height);
+        for pixel in data {
+            w.write_all(&[*pixel])?;
+        }
+        Ok(())
     }
 }
 
 impl PnmContent for Ppm {
-    type DataType = Vec<crate::vec::Vec3<u8>>;
+    type DataType = Vec<[u8; 3]>;
 
-    fn read_ascii<R: BufRead>(_r: R, _width: usize, _height: usize) -> PnmResult<Self::DataType> {
-        unimplemented!()
+    /// Read a PPM file in ASCII format.(P3)
+    fn read_ascii<R: BufRead>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+        let mut data = Vec::with_capacity(width * height);
+        for _ in 0..width * height {
+            let mut pixel = [0u8; 3];
+            r.read_exact(&mut pixel)?;
+            data.push(pixel);
+        }
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel(format!(
+                "data length mismatch: expected {}, got {}",
+                width * height,
+                data.len()
+            )));
+        }
+        Ok(data)
     }
 
-    fn read_binary<R: Read>(_r: R, _width: usize, _height: usize) -> PnmResult<Self::DataType> {
-        unimplemented!()
+    fn read_binary<R: Read>(mut r: R, width: usize, height: usize) -> PnmResult<Self::DataType> {
+        let mut data = vec![[0u8; 3]; width * height];
+        r.read_exact(bytemuck::cast_slice_mut(&mut data))?;
+        if data.len() != width * height {
+            return Err(PnmError::InvalidPixel(format!(
+                "data length mismatch: expected {}, got {}",
+                width * height,
+                data.len()
+            )));
+        }
+        Ok(data)
     }
 
     fn write_ascii<W: Write>(
-        _data: &Self::DataType,
-        _w: &mut W,
-        _width: usize,
-        _height: usize,
+        data: &Self::DataType,
+        w: &mut W,
+        width: usize,
+        height: usize,
     ) -> PnmResult<()> {
-        unimplemented!()
+        debug_assert!(data.len() == width * height);
+        for row in data.chunks(width) {
+            for (i, [r, g, b]) in row.iter().enumerate() {
+                write!(w, "{} {} {}", r, g, b)?;
+                if i < width - 1 {
+                    write!(w, " ")?;
+                }
+            }
+            writeln!(w)?;
+        }
+        Ok(())
     }
 
     fn write_binary<W: Write>(
-        _data: &Self::DataType,
-        _w: &mut W,
-        _width: usize,
-        _height: usize,
+        data: &Self::DataType,
+        w: &mut W,
+        width: usize,
+        height: usize,
     ) -> PnmResult<()> {
-        unimplemented!()
+        debug_assert!(data.len() == width * height);
+        let buf = bytemuck::cast_slice(data);
+        w.write_all(buf)?;
+        Ok(())
     }
 }
 
-// ---------------------------------------------------------------------------
-// PnmKindTrait: Content × Encoding の組み合わせ
-// read_data / write_data は KIND.is_ascii() で振り分けるデフォルト実装
-// ---------------------------------------------------------------------------
-
+/// PnmKindTrait は Content × Encoding の組み合わせを表すトレイト
+/// 具体的な Content と Encoding の組み合わせを表すために、PnmKind を使用する
 pub trait PnmKindTrait {
     type Content: PnmContent;
     const KIND: PnmKind;
