@@ -617,10 +617,7 @@ pub type BinaryPgmBuf = PnmBuf<P5>;
 /// Binary PPM (P6)
 pub type BinaryPpmBuf = PnmBuf<P6>;
 
-// ---------------------------------------------------------------------------
-// Pnm: 実行時不定のラッパー enum
-// ---------------------------------------------------------------------------
-
+/// Portable AnyMap Format(PNM)
 pub enum Pnm {
     AsciiPbm(AsciiPbmBuf),
     AsciiPgm(AsciiPgmBuf),
