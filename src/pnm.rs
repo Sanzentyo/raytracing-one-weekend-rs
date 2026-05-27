@@ -518,6 +518,75 @@ impl Pnm {
             ))),
         }
     }
+
+    pub fn write<W: Write>(&self, w: &mut W) -> PnmResult<()> {
+        // ヘッダーの書き込み
+        writeln!(w, "{}", self.kind())?;
+        // コメントの書き込み
+        for comment in self.comments() {
+            writeln!(w, "# {}", comment)?;
+        }
+        // width, heightの書き込み
+        writeln!(w, "{} {}", self.width(), self.height())?;
+        // データの書き込み
+        self.write_data(w)?;
+        Ok(())
+    }
+
+    fn write_data<W: Write>(&self, w: &mut W) -> PnmResult<()> {
+        match self {
+            Pnm::AsciiPbm(buf) => P1::write_data(&buf.data, w, buf.width, buf.height),
+            Pnm::AsciiPgm(buf) => P2::write_data(&buf.data, w, buf.width, buf.height),
+            Pnm::AsciiPpm(buf) => P3::write_data(&buf.data, w, buf.width, buf.height),
+            Pnm::BinaryPbm(buf) => P4::write_data(&buf.data, w, buf.width, buf.height),
+            Pnm::BinaryPgm(buf) => P5::write_data(&buf.data, w, buf.width, buf.height),
+            Pnm::BinaryPpm(buf) => P6::write_data(&buf.data, w, buf.width, buf.height),
+        }
+    }
+
+    pub const fn kind(&self) -> PnmKind {
+        match self {
+            Pnm::AsciiPbm(_) => PnmKind::P1,
+            Pnm::AsciiPgm(_) => PnmKind::P2,
+            Pnm::AsciiPpm(_) => PnmKind::P3,
+            Pnm::BinaryPbm(_) => PnmKind::P4,
+            Pnm::BinaryPgm(_) => PnmKind::P5,
+            Pnm::BinaryPpm(_) => PnmKind::P6,
+        }
+    }
+
+    pub fn comments(&self) -> &[String] {
+        match self {
+            Pnm::AsciiPbm(buf) => &buf.comments,
+            Pnm::AsciiPgm(buf) => &buf.comments,
+            Pnm::AsciiPpm(buf) => &buf.comments,
+            Pnm::BinaryPbm(buf) => &buf.comments,
+            Pnm::BinaryPgm(buf) => &buf.comments,
+            Pnm::BinaryPpm(buf) => &buf.comments,
+        }
+    }
+
+    pub const fn width(&self) -> usize {
+        match self {
+            Pnm::AsciiPbm(buf) => buf.width,
+            Pnm::AsciiPgm(buf) => buf.width,
+            Pnm::AsciiPpm(buf) => buf.width,
+            Pnm::BinaryPbm(buf) => buf.width,
+            Pnm::BinaryPgm(buf) => buf.width,
+            Pnm::BinaryPpm(buf) => buf.width,
+        }
+    }
+
+    pub const fn height(&self) -> usize {
+        match self {
+            Pnm::AsciiPbm(buf) => buf.height,
+            Pnm::AsciiPgm(buf) => buf.height,
+            Pnm::AsciiPpm(buf) => buf.height,
+            Pnm::BinaryPbm(buf) => buf.height,
+            Pnm::BinaryPgm(buf) => buf.height,
+            Pnm::BinaryPpm(buf) => buf.height,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
