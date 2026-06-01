@@ -49,6 +49,8 @@ pub trait PnmContent {
     type MaxVal: MaxValTrait;
     const EXTENSION: &'static str;
 
+    fn blank_data(maxval: Self::MaxVal, width: usize, height: usize) -> Self::DataType;
+
     fn read_ascii<R: BufRead>(
         r: R,
         maxval: Self::MaxVal,
@@ -405,7 +407,21 @@ impl GrayData {
         }
     }
 
+    pub fn as_u8_slice_mut(&mut self) -> Option<&mut [u8]> {
+        match self {
+            GrayData::U8(data) => Some(data),
+            GrayData::U16(_) => None,
+        }
+    }
+
     pub fn as_u16_slice(&self) -> Option<&[u16]> {
+        match self {
+            GrayData::U8(_) => None,
+            GrayData::U16(data) => Some(data),
+        }
+    }
+
+    pub fn as_u16_slice_mut(&mut self) -> Option<&mut [u16]> {
         match self {
             GrayData::U8(_) => None,
             GrayData::U16(data) => Some(data),
@@ -426,6 +442,14 @@ impl GrayData {
 
     pub fn pixels_u16(&self) -> Option<std::iter::Copied<std::slice::Iter<'_, u16>>> {
         self.as_u16_slice().map(|data| data.iter().copied())
+    }
+
+    pub fn pixels_mut_u8(&mut self) -> Option<std::slice::IterMut<'_, u8>> {
+        self.as_u8_slice_mut().map(<[_]>::iter_mut)
+    }
+
+    pub fn pixels_mut_u16(&mut self) -> Option<std::slice::IterMut<'_, u16>> {
+        self.as_u16_slice_mut().map(<[_]>::iter_mut)
     }
 
     pub fn normalized_pixels(&self) -> GrayPixels<'_> {
@@ -505,7 +529,21 @@ impl RgbData {
         }
     }
 
+    pub fn as_u8_slice_mut(&mut self) -> Option<&mut [[u8; 3]]> {
+        match self {
+            RgbData::U8(data) => Some(data),
+            RgbData::U16(_) => None,
+        }
+    }
+
     pub fn as_u16_slice(&self) -> Option<&[[u16; 3]]> {
+        match self {
+            RgbData::U8(_) => None,
+            RgbData::U16(data) => Some(data),
+        }
+    }
+
+    pub fn as_u16_slice_mut(&mut self) -> Option<&mut [[u16; 3]]> {
         match self {
             RgbData::U8(_) => None,
             RgbData::U16(data) => Some(data),
@@ -526,6 +564,14 @@ impl RgbData {
 
     pub fn pixels_u16(&self) -> Option<std::iter::Copied<std::slice::Iter<'_, [u16; 3]>>> {
         self.as_u16_slice().map(|data| data.iter().copied())
+    }
+
+    pub fn pixels_mut_u8(&mut self) -> Option<std::slice::IterMut<'_, [u8; 3]>> {
+        self.as_u8_slice_mut().map(<[_]>::iter_mut)
+    }
+
+    pub fn pixels_mut_u16(&mut self) -> Option<std::slice::IterMut<'_, [u16; 3]>> {
+        self.as_u16_slice_mut().map(<[_]>::iter_mut)
     }
 
     pub fn normalized_pixels(&self) -> RgbPixels<'_> {
@@ -596,6 +642,10 @@ impl PnmContent for Pbm {
     type PixelType = bool;
     type MaxVal = ();
     const EXTENSION: &'static str = "pbm";
+
+    fn blank_data(_maxval: Self::MaxVal, width: usize, height: usize) -> Self::DataType {
+        BitVec::repeat(false, width * height)
+    }
 
     /// Read a PBM file from ASCII format(P1)
     fn read_ascii<R: BufRead>(
@@ -721,6 +771,14 @@ impl PnmContent for Pgm {
     type PixelType = u16;
     type MaxVal = NonZeroU16;
     const EXTENSION: &'static str = "pgm";
+
+    fn blank_data(maxval: Self::MaxVal, width: usize, height: usize) -> Self::DataType {
+        if maxval.get() <= u8::MAX as u16 {
+            GrayData::U8(vec![0; width * height])
+        } else {
+            GrayData::U16(vec![0; width * height])
+        }
+    }
 
     /// Read a PGM file in ASCII format.(P5)
     fn read_ascii<R: BufRead>(
@@ -851,6 +909,14 @@ impl PnmContent for Ppm {
     type MaxVal = NonZeroU16;
     const EXTENSION: &'static str = "ppm";
 
+    fn blank_data(maxval: Self::MaxVal, width: usize, height: usize) -> Self::DataType {
+        if maxval.get() <= u8::MAX as u16 {
+            RgbData::U8(vec![[0; 3]; width * height])
+        } else {
+            RgbData::U16(vec![[0; 3]; width * height])
+        }
+    }
+
     /// Read a PPM file in ASCII format.(P3)
     fn read_ascii<R: BufRead>(
         mut r: R,
@@ -974,7 +1040,7 @@ impl PnmContent for Ppm {
         Ok(())
     }
 }
-pub trait MaxValTrait {
+pub trait MaxValTrait: Copy {
     fn limit(&self) -> Option<NonZeroU16> {
         None
     }
@@ -1001,7 +1067,6 @@ impl MaxValTrait for NonZeroU16 {
 /// 具体的な Content と Encoding の組み合わせを表すために、PnmKind を使用する
 pub trait PnmKindTrait {
     type Content: PnmContent;
-    type MaxVal: MaxValTrait;
 
     const KIND: PnmKind;
 
@@ -1036,42 +1101,36 @@ pub trait PnmKindTrait {
 pub struct P1;
 impl PnmKindTrait for P1 {
     type Content = Pbm;
-    type MaxVal = ();
     const KIND: PnmKind = PnmKind::P1;
 }
 
 pub struct P2;
 impl PnmKindTrait for P2 {
     type Content = Pgm;
-    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P2;
 }
 
 pub struct P3;
 impl PnmKindTrait for P3 {
     type Content = Ppm;
-    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P3;
 }
 
 pub struct P4;
 impl PnmKindTrait for P4 {
     type Content = Pbm;
-    type MaxVal = ();
     const KIND: PnmKind = PnmKind::P4;
 }
 
 pub struct P5;
 impl PnmKindTrait for P5 {
     type Content = Pgm;
-    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P5;
 }
 
 pub struct P6;
 impl PnmKindTrait for P6 {
     type Content = Ppm;
-    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P6;
 }
 
@@ -1079,7 +1138,7 @@ impl PnmKindTrait for P6 {
 pub struct PnmBuf<T: PnmKindTrait> {
     pub width: usize,
     pub height: usize,
-    pub max_val: T::MaxVal,
+    pub max_val: <T::Content as PnmContent>::MaxVal,
     pub comments: Vec<String>,
     pub data: <T::Content as PnmContent>::DataType,
 }
@@ -1088,7 +1147,23 @@ impl<T: PnmKindTrait> PnmBuf<T> {
     pub fn new(
         width: usize,
         height: usize,
-        max_val: T::MaxVal,
+        max_val: <T::Content as PnmContent>::MaxVal,
+        comments: Vec<String>,
+    ) -> Self {
+        let data = T::Content::blank_data(max_val, width, height);
+        Self {
+            width,
+            height,
+            max_val,
+            comments,
+            data,
+        }
+    }
+
+    pub fn from_data(
+        width: usize,
+        height: usize,
+        max_val: <T::Content as PnmContent>::MaxVal,
         comments: Vec<String>,
         data: <T::Content as PnmContent>::DataType,
     ) -> Self {
@@ -1177,6 +1252,20 @@ where
             inner: self.pixels().enumerate(),
         }
     }
+
+    pub fn pixels_mut(&mut self) -> bitvec::slice::IterMut<'_, u8, Msb0> {
+        self.data.iter_mut()
+    }
+
+    pub fn enumerate_pixels_mut(
+        &mut self,
+    ) -> EnumeratePixels<bitvec::slice::IterMut<'_, u8, Msb0>> {
+        let width = self.width;
+        EnumeratePixels {
+            width,
+            inner: self.pixels_mut().enumerate(),
+        }
+    }
 }
 
 impl<T> PnmBuf<T>
@@ -1189,6 +1278,14 @@ where
 
     pub fn gray_pixels_u16(&self) -> Option<std::iter::Copied<std::slice::Iter<'_, u16>>> {
         self.data.pixels_u16()
+    }
+
+    pub fn gray_pixels_mut_u8(&mut self) -> Option<std::slice::IterMut<'_, u8>> {
+        self.data.pixels_mut_u8()
+    }
+
+    pub fn gray_pixels_mut_u16(&mut self) -> Option<std::slice::IterMut<'_, u16>> {
+        self.data.pixels_mut_u16()
     }
 
     pub fn normalized_gray_pixels(&self) -> GrayPixels<'_> {
@@ -1213,6 +1310,26 @@ where
         })
     }
 
+    pub fn enumerate_gray_pixels_mut_u8(
+        &mut self,
+    ) -> Option<EnumeratePixels<std::slice::IterMut<'_, u8>>> {
+        let width = self.width;
+        self.gray_pixels_mut_u8().map(|pixels| EnumeratePixels {
+            width,
+            inner: pixels.enumerate(),
+        })
+    }
+
+    pub fn enumerate_gray_pixels_mut_u16(
+        &mut self,
+    ) -> Option<EnumeratePixels<std::slice::IterMut<'_, u16>>> {
+        let width = self.width;
+        self.gray_pixels_mut_u16().map(|pixels| EnumeratePixels {
+            width,
+            inner: pixels.enumerate(),
+        })
+    }
+
     pub fn enumerate_normalized_gray_pixels(&self) -> EnumeratePixels<GrayPixels<'_>> {
         EnumeratePixels {
             width: self.width,
@@ -1233,6 +1350,14 @@ where
         self.data.pixels_u16()
     }
 
+    pub fn rgb_pixels_mut_u8(&mut self) -> Option<std::slice::IterMut<'_, [u8; 3]>> {
+        self.data.pixels_mut_u8()
+    }
+
+    pub fn rgb_pixels_mut_u16(&mut self) -> Option<std::slice::IterMut<'_, [u16; 3]>> {
+        self.data.pixels_mut_u16()
+    }
+
     pub fn normalized_rgb_pixels(&self) -> RgbPixels<'_> {
         self.data.normalized_pixels()
     }
@@ -1251,6 +1376,26 @@ where
     ) -> Option<EnumeratePixels<std::iter::Copied<std::slice::Iter<'_, [u16; 3]>>>> {
         self.rgb_pixels_u16().map(|pixels| EnumeratePixels {
             width: self.width,
+            inner: pixels.enumerate(),
+        })
+    }
+
+    pub fn enumerate_rgb_pixels_mut_u8(
+        &mut self,
+    ) -> Option<EnumeratePixels<std::slice::IterMut<'_, [u8; 3]>>> {
+        let width = self.width;
+        self.rgb_pixels_mut_u8().map(|pixels| EnumeratePixels {
+            width,
+            inner: pixels.enumerate(),
+        })
+    }
+
+    pub fn enumerate_rgb_pixels_mut_u16(
+        &mut self,
+    ) -> Option<EnumeratePixels<std::slice::IterMut<'_, [u16; 3]>>> {
+        let width = self.width;
+        self.rgb_pixels_mut_u16().map(|pixels| EnumeratePixels {
+            width,
             inner: pixels.enumerate(),
         })
     }
@@ -1385,42 +1530,42 @@ impl Pnm {
 
         // データ読み込みは各 Kind に委譲
         match pnm_kind {
-            PnmKind::P1 => Ok(Pnm::AsciiPbm(PnmBuf::new(
+            PnmKind::P1 => Ok(Pnm::AsciiPbm(PnmBuf::from_data(
                 width,
                 height,
                 (),
                 comments,
                 P1::read_data(&mut reader, (), width, height)?,
             ))),
-            PnmKind::P2 => Ok(Pnm::AsciiPgm(PnmBuf::new(
+            PnmKind::P2 => Ok(Pnm::AsciiPgm(PnmBuf::from_data(
                 width,
                 height,
                 maxval.unwrap(),
                 comments,
                 P2::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
-            PnmKind::P3 => Ok(Pnm::AsciiPpm(PnmBuf::new(
+            PnmKind::P3 => Ok(Pnm::AsciiPpm(PnmBuf::from_data(
                 width,
                 height,
                 maxval.unwrap(),
                 comments,
                 P3::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
-            PnmKind::P4 => Ok(Pnm::BinaryPbm(PnmBuf::new(
+            PnmKind::P4 => Ok(Pnm::BinaryPbm(PnmBuf::from_data(
                 width,
                 height,
                 (),
                 comments,
                 P4::read_data(&mut reader, (), width, height)?,
             ))),
-            PnmKind::P5 => Ok(Pnm::BinaryPgm(PnmBuf::new(
+            PnmKind::P5 => Ok(Pnm::BinaryPgm(PnmBuf::from_data(
                 width,
                 height,
                 maxval.unwrap(),
                 comments,
                 P5::read_data(&mut reader, maxval.unwrap(), width, height)?,
             ))),
-            PnmKind::P6 => Ok(Pnm::BinaryPpm(PnmBuf::new(
+            PnmKind::P6 => Ok(Pnm::BinaryPpm(PnmBuf::from_data(
                 width,
                 height,
                 maxval.unwrap(),
@@ -1727,7 +1872,8 @@ mod tests {
 
     #[test]
     fn pnm_buf_accesses_pixels_by_coordinates() {
-        let mut buf = AsciiPgmBuf::new(2, 2, max_val(10), vec![], GrayData::U8(vec![0, 1, 2, 3]));
+        let mut buf =
+            AsciiPgmBuf::from_data(2, 2, max_val(10), vec![], GrayData::U8(vec![0, 1, 2, 3]));
 
         assert_eq!(buf.pixel_count(), 4);
         assert_eq!(buf.len(), 4);
@@ -1746,8 +1892,26 @@ mod tests {
     }
 
     #[test]
+    fn pnm_buf_mutates_pixels_with_typed_iterators() {
+        let mut gray = AsciiPgmBuf::new(2, 2, max_val(255), vec![]);
+        for (x, y, pixel) in gray.enumerate_gray_pixels_mut_u8().unwrap() {
+            *pixel = (x + y * 2) as u8;
+        }
+        assert_eq!(gray.data.as_u8_slice(), Some([0, 1, 2, 3].as_slice()));
+
+        let mut rgb = BinaryPpmBuf::new(2, 1, max_val(255), vec![]);
+        for (x, _y, pixel) in rgb.enumerate_rgb_pixels_mut_u8().unwrap() {
+            *pixel = [x as u8, 10, 20];
+        }
+        assert_eq!(
+            rgb.data.as_u8_slice(),
+            Some([[0, 10, 20], [1, 10, 20]].as_slice())
+        );
+    }
+
+    #[test]
     fn pnm_enum_accesses_pixels_across_formats() {
-        let mut pnm = Pnm::BinaryPpm(BinaryPpmBuf::new(
+        let mut pnm = Pnm::BinaryPpm(BinaryPpmBuf::from_data(
             2,
             1,
             max_val(255),
@@ -1770,20 +1934,8 @@ mod tests {
 
     #[test]
     fn pnm_max_val_is_available_for_pgm_and_ppm() {
-        let pgm = Pnm::AsciiPgm(AsciiPgmBuf::new(
-            1,
-            1,
-            max_val(31),
-            vec![],
-            GrayData::U8(vec![0]),
-        ));
-        let ppm = Pnm::AsciiPpm(AsciiPpmBuf::new(
-            1,
-            1,
-            max_val(63),
-            vec![],
-            RgbData::U8(vec![[0, 0, 0]]),
-        ));
+        let pgm = Pnm::AsciiPgm(AsciiPgmBuf::new(1, 1, max_val(31), vec![]));
+        let ppm = Pnm::AsciiPpm(AsciiPpmBuf::new(1, 1, max_val(63), vec![]));
 
         assert_eq!(pgm.max_val(), Some(max_val(31)));
         assert_eq!(ppm.max_val(), Some(max_val(63)));
