@@ -1591,10 +1591,10 @@ impl Pnm {
 
     pub fn write_max_val(&self, w: &mut dyn Write) -> PnmResult<()> {
         match self {
-            Pnm::AsciiPbm(_) => ().write_max_val(w),
+            Pnm::AsciiPbm(_) => Ok(()),
             Pnm::AsciiPgm(buf) => buf.max_val.write_max_val(w),
             Pnm::AsciiPpm(buf) => buf.max_val.write_max_val(w),
-            Pnm::BinaryPbm(_) => ().write_max_val(w),
+            Pnm::BinaryPbm(_) => Ok(()),
             Pnm::BinaryPgm(buf) => buf.max_val.write_max_val(w),
             Pnm::BinaryPpm(buf) => buf.max_val.write_max_val(w),
         }
