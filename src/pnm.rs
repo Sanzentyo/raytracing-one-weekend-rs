@@ -13,7 +13,7 @@ pub enum EofAt {
     #[error("size")]
     Size,
     #[error("max value")]
-    MaxValue,
+    MaxVal,
 }
 
 #[derive(Error, Debug)]
@@ -44,17 +44,18 @@ pub type PnmResult<T> = Result<T, PnmError>;
 /// データ形式(PBM/PGM/PPM)ごとのI/Oを集約するトレイト
 pub trait PnmContent {
     type DataType: Debug;
-    type MaxValue: MaxValueTrait;
+    type MaxVal: MaxValTrait;
+    const EXTENSION: &'static str;
 
     fn read_ascii<R: BufRead>(
         r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType>;
     fn read_binary<R: Read>(
         r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType>;
@@ -123,12 +124,13 @@ impl RgbData {
 
 impl PnmContent for Pbm {
     type DataType = BitVec<u8, Msb0>;
-    type MaxValue = ();
+    type MaxVal = ();
+    const EXTENSION: &'static str = "pbm";
 
     /// Read a PBM file from ASCII format(P1)
     fn read_ascii<R: BufRead>(
         r: R,
-        _maxval: Self::MaxValue,
+        _maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -161,7 +163,7 @@ impl PnmContent for Pbm {
     /// Read a PBM file from binary format(P4)
     fn read_binary<R: Read>(
         mut r: R,
-        _maxval: Self::MaxValue,
+        _maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -246,12 +248,13 @@ impl PnmContent for Pbm {
 
 impl PnmContent for Pgm {
     type DataType = GrayData;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
+    const EXTENSION: &'static str = "pgm";
 
     /// Read a PGM file in ASCII format.(P5)
     fn read_ascii<R: BufRead>(
         r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -294,7 +297,7 @@ impl PnmContent for Pgm {
     /// Read a PGM file in binary format.(P2)
     fn read_binary<R: Read>(
         mut r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -373,12 +376,13 @@ impl PnmContent for Pgm {
 
 impl PnmContent for Ppm {
     type DataType = RgbData;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
+    const EXTENSION: &'static str = "ppm";
 
     /// Read a PPM file in ASCII format.(P3)
     fn read_ascii<R: BufRead>(
         mut r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -418,7 +422,7 @@ impl PnmContent for Ppm {
 
     fn read_binary<R: Read>(
         mut r: R,
-        maxval: Self::MaxValue,
+        maxval: Self::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<Self::DataType> {
@@ -498,21 +502,32 @@ impl PnmContent for Ppm {
         Ok(())
     }
 }
-pub trait MaxValueTrait: Sized {}
-impl MaxValueTrait for () {}
-impl MaxValueTrait for NonZeroU16 {}
+pub trait MaxValTrait {
+    fn write_max_val(&self, w: &mut dyn Write) -> PnmResult<()>;
+}
+impl MaxValTrait for () {
+    fn write_max_val(&self, _w: &mut dyn Write) -> PnmResult<()> {
+        Ok(())
+    }
+}
+impl MaxValTrait for NonZeroU16 {
+    fn write_max_val(&self, w: &mut dyn Write) -> PnmResult<()> {
+        write!(w, " {}", self.get())?;
+        Ok(())
+    }
+}
 
 /// PnmKindTrait は Content × Encoding の組み合わせを表すトレイト
 /// 具体的な Content と Encoding の組み合わせを表すために、PnmKind を使用する
 pub trait PnmKindTrait {
     type Content: PnmContent;
-    type MaxValue: MaxValueTrait;
+    type MaxVal: MaxValTrait;
 
     const KIND: PnmKind;
 
     fn read_data<R: BufRead>(
         r: R,
-        maxval: <Self::Content as PnmContent>::MaxValue,
+        maxval: <Self::Content as PnmContent>::MaxVal,
         width: usize,
         height: usize,
     ) -> PnmResult<<Self::Content as PnmContent>::DataType> {
@@ -541,42 +556,42 @@ pub trait PnmKindTrait {
 pub struct P1;
 impl PnmKindTrait for P1 {
     type Content = Pbm;
-    type MaxValue = ();
+    type MaxVal = ();
     const KIND: PnmKind = PnmKind::P1;
 }
 
 pub struct P2;
 impl PnmKindTrait for P2 {
     type Content = Pgm;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P2;
 }
 
 pub struct P3;
 impl PnmKindTrait for P3 {
     type Content = Ppm;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P3;
 }
 
 pub struct P4;
 impl PnmKindTrait for P4 {
     type Content = Pbm;
-    type MaxValue = ();
+    type MaxVal = ();
     const KIND: PnmKind = PnmKind::P4;
 }
 
 pub struct P5;
 impl PnmKindTrait for P5 {
     type Content = Pgm;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P5;
 }
 
 pub struct P6;
 impl PnmKindTrait for P6 {
     type Content = Ppm;
-    type MaxValue = NonZeroU16;
+    type MaxVal = NonZeroU16;
     const KIND: PnmKind = PnmKind::P6;
 }
 
@@ -587,7 +602,7 @@ impl PnmKindTrait for P6 {
 pub struct PnmBuf<T: PnmKindTrait> {
     pub width: usize,
     pub height: usize,
-    pub max_value: T::MaxValue,
+    pub max_val: T::MaxVal,
     pub comments: Vec<String>,
     pub data: <T::Content as PnmContent>::DataType,
 }
@@ -596,14 +611,14 @@ impl<T: PnmKindTrait> PnmBuf<T> {
     pub fn new(
         width: usize,
         height: usize,
-        max_value: T::MaxValue,
+        max_val: T::MaxVal,
         comments: Vec<String>,
         data: <T::Content as PnmContent>::DataType,
     ) -> Self {
         Self {
             width,
             height,
-            max_value,
+            max_val,
             comments,
             data,
         }
@@ -634,6 +649,36 @@ pub enum Pnm {
 }
 
 impl Pnm {
+    pub fn from_path(path: impl AsRef<std::path::Path>) -> PnmResult<Self> {
+        let path = path.as_ref();
+        let file = std::fs::File::open(path)?;
+        let mut reader = std::io::BufReader::new(file);
+        Self::from_reader(&mut reader)
+    }
+
+    pub fn to_string(&self) -> String {
+        let mut buf = Vec::new();
+        self.write(&mut buf).unwrap();
+        String::from_utf8(buf).unwrap()
+    }
+
+    pub fn save(&self, path: impl AsRef<std::path::Path>) -> PnmResult<()> {
+        let path = path.as_ref();
+        let file = std::fs::File::create(path)?;
+        let mut writer = std::io::BufWriter::new(file);
+        self.write(&mut writer)?;
+        Ok(())
+    }
+
+    /// pbm, pgm, ppm の拡張子を付けて保存する
+    pub fn save_with_extension(&self, path: impl AsRef<std::path::Path>) -> PnmResult<()> {
+        let path = path.as_ref();
+        let file = std::fs::File::create(path.with_extension(self.extension()))?;
+        let mut writer = std::io::BufWriter::new(file);
+        self.write(&mut writer)?;
+        Ok(())
+    }
+
     pub fn from_reader<R: BufRead>(mut reader: R) -> PnmResult<Self> {
         let mut comments = Vec::new();
 
@@ -689,7 +734,7 @@ impl Pnm {
             loop {
                 let line = lines
                     .next()
-                    .ok_or(PnmError::UnexpectedEof(EofAt::MaxValue))??;
+                    .ok_or(PnmError::UnexpectedEof(EofAt::MaxVal))??;
                 if skip(line.trim()) {
                     continue;
                 }
@@ -755,6 +800,10 @@ impl Pnm {
         }
         // width, heightの書き込み
         writeln!(w, "{} {}", self.width(), self.height())?;
+
+        // max_valの書き込み
+        self.writeln_max_val(w)?;
+
         // データの書き込み
         self.write_data(w)?;
         Ok(())
@@ -812,6 +861,45 @@ impl Pnm {
             Pnm::BinaryPbm(buf) => buf.height,
             Pnm::BinaryPgm(buf) => buf.height,
             Pnm::BinaryPpm(buf) => buf.height,
+        }
+    }
+
+    pub fn max_val(&self) -> Option<NonZeroU16> {
+        match self {
+            Pnm::AsciiPbm(_) => None,
+            Pnm::AsciiPgm(_) => None,
+            Pnm::AsciiPpm(buf) => Some(buf.max_val),
+            Pnm::BinaryPbm(_) => None,
+            Pnm::BinaryPgm(_) => None,
+            Pnm::BinaryPpm(buf) => Some(buf.max_val),
+        }
+    }
+
+    pub fn write_max_val(&self, w: &mut dyn Write) -> PnmResult<()> {
+        match self {
+            Pnm::AsciiPbm(buf) => buf.max_val.write_max_val(w),
+            Pnm::AsciiPgm(buf) => buf.max_val.write_max_val(w),
+            Pnm::AsciiPpm(buf) => buf.max_val.write_max_val(w),
+            Pnm::BinaryPbm(buf) => buf.max_val.write_max_val(w),
+            Pnm::BinaryPgm(buf) => buf.max_val.write_max_val(w),
+            Pnm::BinaryPpm(buf) => buf.max_val.write_max_val(w),
+        }
+    }
+
+    pub fn writeln_max_val(&self, w: &mut dyn Write) -> PnmResult<()> {
+        self.write_max_val(w)?;
+        writeln!(w)?;
+        Ok(())
+    }
+
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Pnm::AsciiPbm(_) |
+            Pnm::BinaryPbm(_) => Pbm::EXTENSION,
+            Pnm::AsciiPgm(_) |
+            Pnm::BinaryPgm(_) => Pgm::EXTENSION,
+            Pnm::AsciiPpm(_) |
+            Pnm::BinaryPpm(_) => Ppm::EXTENSION,
         }
     }
 }
