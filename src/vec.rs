@@ -25,7 +25,12 @@ impl<T: VecElem> Default for Vec3<T> {
 
 impl<T: VecElem> Vec3<T> {
     pub fn new(x: T, y: T, z: T) -> Self {
-        Self { x, y, z, _padding: T::zero() }
+        Self {
+            x,
+            y,
+            z,
+            _padding: T::zero(),
+        }
     }
 }
 

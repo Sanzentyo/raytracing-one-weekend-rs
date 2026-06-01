@@ -29,12 +29,7 @@ fn main() -> Result<()> {
         HEIGHT,
         NonZeroU16::new(u8::MAX as u16).unwrap(),
         vec![],
-        RgbData::U8(
-            image_data
-                .into_iter()
-                .flatten()
-                .collect::<Vec<_>>(),
-        ),
+        RgbData::U8(image_data.into_iter().flatten().collect::<Vec<_>>()),
     ));
 
     std::fs::create_dir_all(OUTPUT_DIR)?;
