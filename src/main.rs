@@ -24,10 +24,10 @@ fn main() -> Result<()> {
         .unwrap()
         .for_each(|(x, y, pixel)| {
             let r = x as f64 / (WIDTH as f64 - 1.0);
-            let b = y as f64 / (HEIGHT as f64 - 1.0);
-            const G: f64 = 0.0;
+            let g = y as f64 / (HEIGHT as f64 - 1.0);
+            const B: f64 = 0.0;
 
-            *pixel = [to_u8(r), to_u8(G), to_u8(b)];
+            *pixel = [to_u8(r), to_u8(g), to_u8(B)];
         });
 
     let pnm = Pnm::AsciiPpm(image);
