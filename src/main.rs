@@ -20,13 +20,17 @@ pub fn ray_color(ray: &Ray<Float>) -> Vec3<Float> {
     Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
 }
 
-pub fn hit_sphere(ray: &Ray<Float>, center: Vec3<Float>, radius: Float) -> bool {
+pub fn hit_sphere(ray: &Ray<Float>, center: Vec3<Float>, radius: Float) -> Option<Float> {
     let oc = center - ray.orig;
     let a = ray.dir.dot(ray.dir);
     let b = -2.0 * ray.dir.dot(oc);
     let c = oc.dot(oc) - radius * radius;
     let discriminant = b * b - 4.0 * a * c;
-    discriminant >= 0.0
+
+    if discriminant < 0.0 {
+        return None;
+    }
+    Some((-b - discriminant.sqrt()) / (2.0 * a))
 }
 
 fn main() -> Result<()> {
@@ -87,10 +91,16 @@ fn main() -> Result<()> {
 
             let ray = Ray::new(CAMERA_CENTER, ray_dir);
 
-            let color = if hit_sphere(&ray, Vec3::new(0.0, 0.0, -1.0), 0.5) {
-                Vec3::new(1.0, 0.0, 0.0)
-            } else {
-                ray_color(&ray)
+            const SPHERE_CENTER: Vec3<Float> = Vec3::new(0.0, 0.0, -1.0);
+            const SPHERE_RADIUS: Float = 0.5;
+
+            let color = match hit_sphere(&ray, SPHERE_CENTER, SPHERE_RADIUS) {
+                Some(t) => {
+                    let p = ray.at(t);
+                    let normal = (p - SPHERE_CENTER).normalize();
+                    (normal + Vec3::one()) * 0.5
+                }
+                None => ray_color(&ray),
             };
             *pixel = [to_u8(color.x), to_u8(color.y), to_u8(color.z)];
             pb.inc(1);
