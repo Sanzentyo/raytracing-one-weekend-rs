@@ -54,10 +54,17 @@ impl<T: VecElem> Vec3<T> {
         )
     }
 
-    pub fn length(self) -> T {
-        self.dot(self).sqrt()
+    #[inline(always)]
+    pub fn length_squared(self) -> T {
+        self.dot(self)
     }
 
+    #[inline(always)]
+    pub fn length(self) -> T {
+        self.length_squared().sqrt()
+    }
+
+    #[inline(always)]
     pub fn normalize(self) -> Self {
         self / self.length()
     }

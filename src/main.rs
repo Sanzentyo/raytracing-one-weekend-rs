@@ -22,15 +22,15 @@ pub fn ray_color(ray: &Ray<Float>) -> Vec3<Float> {
 
 pub fn hit_sphere(ray: &Ray<Float>, center: Vec3<Float>, radius: Float) -> Option<Float> {
     let oc = center - ray.orig;
-    let a = ray.dir.dot(ray.dir);
-    let b = -2.0 * ray.dir.dot(oc);
-    let c = oc.dot(oc) - radius * radius;
-    let discriminant = b * b - 4.0 * a * c;
+    let a = ray.dir.length_squared();
+    let h = ray.dir.dot(oc);
+    let c = oc.length_squared() - radius * radius;
+    let discriminant = h * h - a * c;
 
     if discriminant < 0.0 {
         return None;
     }
-    Some((-b - discriminant.sqrt()) / (2.0 * a))
+    Some((h - discriminant.sqrt()) / a)
 }
 
 fn main() -> Result<()> {
