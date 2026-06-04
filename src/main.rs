@@ -20,6 +20,15 @@ pub fn ray_color(ray: &Ray<Float>) -> Vec3<Float> {
     Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
 }
 
+pub fn hit_sphere(ray: &Ray<Float>, center: Vec3<Float>, radius: Float) -> bool {
+    let oc = center - ray.orig;
+    let a = ray.dir.dot(ray.dir);
+    let b = -2.0 * ray.dir.dot(oc);
+    let c = oc.dot(oc) - radius * radius;
+    let discriminant = b * b - 4.0 * a * c;
+    discriminant >= 0.0
+}
+
 fn main() -> Result<()> {
     // image
     const IMAGE_WIDTH: usize = 400;
@@ -76,8 +85,13 @@ fn main() -> Result<()> {
                 pixel00_loc + pixel_delta_u * x as Float + pixel_delta_v * y as Float;
             let ray_dir = pixel_center - CAMERA_CENTER;
 
-            let color = ray_color(&Ray::new(CAMERA_CENTER, ray_dir));
+            let ray = Ray::new(CAMERA_CENTER, ray_dir);
 
+            let color = if hit_sphere(&ray, Vec3::new(0.0, 0.0, -1.0), 0.5) {
+                Vec3::new(1.0, 0.0, 0.0)
+            } else {
+                ray_color(&ray)
+            };
             *pixel = [to_u8(color.x), to_u8(color.y), to_u8(color.z)];
             pb.inc(1);
         });
