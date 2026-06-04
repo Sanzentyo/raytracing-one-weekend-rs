@@ -1455,13 +1455,13 @@ impl Pnm {
     }
 
     /// pbm, pgm, ppm の拡張子を付けて保存する
-    pub fn save_with_extension(&self, path: impl AsRef<std::path::Path>) -> PnmResult<&str> {
+    pub fn save_with_extension(&self, path: impl AsRef<std::path::Path>) -> PnmResult<std::path::PathBuf> {
         let path = path.as_ref();
         let ext = self.extension();
         let file = std::fs::File::create(path.with_extension(ext))?;
         let mut writer = std::io::BufWriter::new(file);
         self.write(&mut writer)?;
-        Ok(ext)
+        Ok(path.with_extension(ext))
     }
 
     pub fn from_reader<R: BufRead>(mut reader: R) -> PnmResult<Self> {
