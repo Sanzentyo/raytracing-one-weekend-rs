@@ -1,8 +1,8 @@
 use num_traits::{Float, Num};
 use std::fmt::Display;
 
-pub trait VecElem: Copy + Num + Default + Display {}
-impl<T: Copy + Num + Default + Display> VecElem for T {}
+pub trait VecElem: Copy + Num + Float + Default + Display {}
+impl<T: Copy + Num + Float + Default + Display> VecElem for T {}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, align(16))]
@@ -25,12 +25,12 @@ impl<T: VecElem> Default for Vec3<T> {
 }
 
 impl<T: VecElem> Vec3<T> {
-    pub fn new(x: T, y: T, z: T) -> Self {
+    pub const fn new(x: T, y: T, z: T) -> Self {
         Self {
             x,
             y,
             z,
-            _padding: T::zero(),
+            _padding: z, // 適当な値でいいので、zを入れる(T::zero()だとconstにできない)
         }
     }
 
@@ -53,9 +53,7 @@ impl<T: VecElem> Vec3<T> {
             self.x * rhs.y - self.y * rhs.x,
         )
     }
-}
 
-impl<T: VecElem + Float> Vec3<T> {
     pub fn length(self) -> T {
         self.dot(self).sqrt()
     }
@@ -121,6 +119,7 @@ impl<T: VecElem> std::ops::Mul<T> for Vec3<T> {
         }
     }
 }
+
 impl<T: VecElem> std::ops::Div<T> for Vec3<T> {
     type Output = Vec3<T>;
 

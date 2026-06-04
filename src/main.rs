@@ -3,30 +3,63 @@ use std::{borrow::Cow, num::NonZeroU16};
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
 use raytracing_one_weekend_rs::pnm::{AsciiPpmBuf, Pnm};
+use raytracing_one_weekend_rs::ray::Ray;
+use raytracing_one_weekend_rs::vec::Vec3;
+
 use tracing::info;
 
-const fn to_u8(v: f64) -> u8 {
+const fn to_u8(v: Float) -> u8 {
     (v * 255.999).round() as u8
 }
 
+type Float = f64;
+
+pub fn ray_color(ray: &Ray<Float>) -> Vec3<Float> {
+    let unit_dir = ray.dir.normalize();
+    let a = 0.5 * (unit_dir.y + 1.0);
+    Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
+}
+
 fn main() -> Result<()> {
-    const WIDTH: usize = 256;
-    const HEIGHT: usize = 256;
+    // image
+    const IMAGE_WIDTH: usize = 400;
+    const ASPECT_RATIO: Float = 16. / 9.;
+    const IMAGE_HEIGHT: usize = (IMAGE_WIDTH as Float / ASPECT_RATIO) as usize;
+    const {
+        assert!(IMAGE_HEIGHT > 0);
+    }
+
+    // camera
+    const FOCAL_LENGTH: Float = 1.0;
+    const VIEWPORT_HEIGHT: Float = 2.0;
+    const VIEWPORT_WIDTH: Float = VIEWPORT_HEIGHT * (IMAGE_WIDTH as Float / IMAGE_HEIGHT as Float);
+    const CAMERA_CENTER: Vec3<Float> = Vec3::new(0.0, 0.0, 0.0);
+
+    const VIEWPORT_U: Vec3<Float> = Vec3::new(VIEWPORT_WIDTH, 0.0, 0.0);
+    const VIEWPORT_V: Vec3<Float> = Vec3::new(0.0, -VIEWPORT_HEIGHT, 0.0); // Y軸が逆なので逆にする
+
+    let pixel_delta_u = VIEWPORT_U / IMAGE_WIDTH as Float;
+    let pixel_delta_v = VIEWPORT_V / IMAGE_HEIGHT as Float;
+
+    let viewport_upper_left =
+        CAMERA_CENTER - Vec3::new(0., 0., FOCAL_LENGTH) - VIEWPORT_U / 2.0 - VIEWPORT_V / 2.0;
+    let pixel00_loc = viewport_upper_left + (pixel_delta_u + pixel_delta_v) * 0.5;
+
     const OUTPUT_DIR: &str = "output";
 
     tracing_subscriber::fmt::init();
 
     let spinner_style = ProgressStyle::default_bar();
 
-    let deps = (WIDTH * HEIGHT) as u64;
+    let deps = (IMAGE_WIDTH * IMAGE_HEIGHT) as u64;
 
     let pb = ProgressBar::new(deps);
     pb.set_style(spinner_style);
 
     info!("Rendering image...");
     let mut image = AsciiPpmBuf::new(
-        WIDTH,
-        HEIGHT,
+        IMAGE_WIDTH,
+        IMAGE_HEIGHT,
         NonZeroU16::new(u8::MAX as u16).unwrap(),
         vec![],
     );
@@ -35,11 +68,17 @@ fn main() -> Result<()> {
         .enumerate_rgb_pixels_mut_u8()
         .unwrap()
         .for_each(|(x, y, pixel)| {
-            let r = x as f64 / (WIDTH as f64 - 1.0);
-            let g = y as f64 / (HEIGHT as f64 - 1.0);
-            const B: f64 = 0.0;
+            if x == 0 {
+                info!("Rendering row {y}...");
+            }
 
-            *pixel = [to_u8(r), to_u8(g), to_u8(B)];
+            let pixel_center =
+                pixel00_loc + pixel_delta_u * x as Float + pixel_delta_v * y as Float;
+            let ray_dir = pixel_center - CAMERA_CENTER;
+
+            let color = ray_color(&Ray::new(CAMERA_CENTER, ray_dir));
+
+            *pixel = [to_u8(color.x), to_u8(color.y), to_u8(color.z)];
             pb.inc(1);
         });
     pb.with_finish(indicatif::ProgressFinish::WithMessage(Cow::Borrowed(
