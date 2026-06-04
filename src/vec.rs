@@ -1,5 +1,5 @@
 use num_traits::{Float, Num};
-use std::fmt::Display;
+use std::{fmt::Display, ops::Neg};
 
 pub trait VecElem: Copy + Num + Float + Default + Display {}
 impl<T: Copy + Num + Float + Default + Display> VecElem for T {}
@@ -21,6 +21,14 @@ impl<T: VecElem> Default for Vec3<T> {
             z: T::zero(),
             _padding: T::zero(),
         }
+    }
+}
+
+impl<T: VecElem> Neg for Vec3<T> {
+    type Output = Self;
+
+    fn neg(self) -> Self {
+        Self::new(-self.x, -self.y, -self.z)
     }
 }
 

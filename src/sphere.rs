@@ -22,7 +22,6 @@ impl<T: VecElem> Hittable<T> for Sphere<T> {
         &self,
         ray: &Ray<T>,
         t_range: Range<T>,
-        rec: Option<HitRecord<T>>,
     ) -> Option<HitRecord<T>> {
         let oc = self.center - ray.orig;
         let a = ray.dir.length_squared();
@@ -46,7 +45,8 @@ impl<T: VecElem> Hittable<T> for Sphere<T> {
 
         let t = root;
         let p = ray.at(t);
-        let normal = (p - self.center) / self.radius;
-        Some(HitRecord { p, normal, t })
+        let outward_normal = (p - self.center) / self.radius;
+        let (normal, front_face) = HitRecord::calc_face_normal(ray, outward_normal);
+        Some(HitRecord { p, normal, t, front_face })
     }
 }

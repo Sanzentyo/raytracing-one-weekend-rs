@@ -21,4 +21,8 @@ impl<T: VecElem> Ray<T> {
     pub fn at(&self, t: T) -> Vec3<T> {
         self.orig + self.dir * t
     }
+
+    pub fn front_face(&self, outward_normal: Vec3<T>) -> bool {
+        self.dir.dot(outward_normal) < T::zero()
+    }
 }

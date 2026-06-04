@@ -1,9 +1,12 @@
-use std::{borrow::Cow, num::NonZeroU16};
+use std::{borrow::Cow, num::NonZeroU16, range::Range};
 
 use anyhow::Result;
 use indicatif::{ProgressBar, ProgressStyle};
+use raytracing_one_weekend_rs::hittable::Hittable as _;
+use raytracing_one_weekend_rs::hittable::HittableList;
 use raytracing_one_weekend_rs::pnm::{AsciiPpmBuf, Pnm};
 use raytracing_one_weekend_rs::ray::Ray;
+use raytracing_one_weekend_rs::sphere::Sphere;
 use raytracing_one_weekend_rs::vec::Vec3;
 
 use tracing::info;
@@ -14,7 +17,16 @@ const fn to_u8(v: Float) -> u8 {
 
 type Float = f64;
 
-pub fn ray_color(ray: &Ray<Float>) -> Vec3<Float> {
+pub fn ray_color(ray: &Ray<Float>, world: &HittableList<Float>) -> Vec3<Float> {
+    if let Some(rec) = world.hit(
+        ray,
+        Range {
+            start: 0.0,
+            end: Float::INFINITY,
+        },
+    ) {
+        return (rec.normal + Vec3::one()) * 0.5;
+    }
     let unit_dir = ray.dir.normalize();
     let a = 0.5 * (unit_dir.y + 1.0);
     Vec3::one() * (1.0 - a) + Vec3::new(0.5, 0.7, 1.0) * a
@@ -77,6 +89,11 @@ fn main() -> Result<()> {
         vec![],
     );
 
+    let world = HittableList::new(vec![
+        Box::new(Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5)),
+        Box::new(Sphere::new(Vec3::new(0.0, -100.5, -1.0), 100.0)),
+    ]);
+
     image
         .enumerate_rgb_pixels_mut_u8()
         .unwrap()
@@ -91,17 +108,7 @@ fn main() -> Result<()> {
 
             let ray = Ray::new(CAMERA_CENTER, ray_dir);
 
-            const SPHERE_CENTER: Vec3<Float> = Vec3::new(0.0, 0.0, -1.0);
-            const SPHERE_RADIUS: Float = 0.5;
-
-            let color = match hit_sphere(&ray, SPHERE_CENTER, SPHERE_RADIUS) {
-                Some(t) => {
-                    let p = ray.at(t);
-                    let normal = (p - SPHERE_CENTER).normalize();
-                    (normal + Vec3::one()) * 0.5
-                }
-                None => ray_color(&ray),
-            };
+            let color = ray_color(&ray, &world);
             *pixel = [to_u8(color.x), to_u8(color.y), to_u8(color.z)];
             pb.inc(1);
         });
