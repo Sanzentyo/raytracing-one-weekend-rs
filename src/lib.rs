@@ -3,3 +3,6 @@ pub mod ray;
 pub mod vec;
 pub mod hittable;
 pub mod sphere;
+pub mod camera;
+
+pub type Float = f64;
