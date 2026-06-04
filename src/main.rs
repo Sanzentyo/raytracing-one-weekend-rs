@@ -30,8 +30,7 @@ fn main() -> Result<()> {
 
     info!("Saving image...");
     std::fs::create_dir_all(OUTPUT_DIR)?;
-    pnm.save_with_extension(std::path::Path::new(OUTPUT_DIR).join("image"))?;
-
-    info!("Image saved {OUTPUT_DIR}/image.ppm");
+    let ext = pnm.save_with_extension(std::path::Path::new(OUTPUT_DIR).join("image"))?;
+    info!("Image saved {OUTPUT_DIR}/image.{ext}");
     Ok(())
 }
