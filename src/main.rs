@@ -19,10 +19,9 @@ fn main() -> Result<()> {
     let spinner_style = ProgressStyle::default_bar();
 
     let deps = (WIDTH * HEIGHT) as u64;
-    
+
     let pb = ProgressBar::new(deps);
     pb.set_style(spinner_style);
-
 
     info!("Rendering image...");
     let mut image = AsciiPpmBuf::new(
@@ -43,7 +42,9 @@ fn main() -> Result<()> {
             *pixel = [to_u8(r), to_u8(g), to_u8(B)];
             pb.inc(1);
         });
-    pb.with_finish(indicatif::ProgressFinish::WithMessage(Cow::Borrowed("Image rendered.")));
+    pb.with_finish(indicatif::ProgressFinish::WithMessage(Cow::Borrowed(
+        "Image rendered.",
+    )));
 
     let pnm = Pnm::AsciiPpm(image);
 

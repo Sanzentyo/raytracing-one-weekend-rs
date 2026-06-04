@@ -1,7 +1,7 @@
-use num_traits::Num;
+use num_traits::{Float, Num};
 use std::fmt::Display;
 
-pub trait VecElem: Copy + Num {}
+pub trait VecElem: Copy + Num + Default + Display {}
 impl<T: Copy + Num + Default + Display> VecElem for T {}
 
 #[derive(Debug, Clone, Copy)]
@@ -25,7 +25,7 @@ impl<T: VecElem> Default for Vec3<T> {
 }
 
 impl<T: VecElem> Vec3<T> {
-    pub const fn new(x: T, y: T, z: T) -> Self {
+    pub fn new(x: T, y: T, z: T) -> Self {
         Self {
             x,
             y,
@@ -34,34 +34,35 @@ impl<T: VecElem> Vec3<T> {
         }
     }
 
-    pub const fn zero() -> Self {
+    pub fn zero() -> Self {
         Self::default()
     }
 
-    pub const fn one() -> Self {
+    pub fn one() -> Self {
         Self::new(T::one(), T::one(), T::one())
     }
 
-    pub const fn dot(self, rhs: Self) -> T {
+    pub fn dot(self, rhs: Self) -> T {
         self.x * rhs.x + self.y * rhs.y + self.z * rhs.z
     }
 
-    pub const fn cross(self, rhs: Self) -> Self {
+    pub fn cross(self, rhs: Self) -> Self {
         Self::new(
             self.y * rhs.z - self.z * rhs.y,
             self.z * rhs.x - self.x * rhs.z,
-            self.x * rhs.y - self.y * rhs.x
+            self.x * rhs.y - self.y * rhs.x,
         )
     }
+}
 
-    pub const fn length(self) -> T {
-        T::sqrt(self.dot(self))
+impl<T: VecElem + Float> Vec3<T> {
+    pub fn length(self) -> T {
+        self.dot(self).sqrt()
     }
 
-    pub const fn normalize(self) -> Self {
+    pub fn normalize(self) -> Self {
         self / self.length()
     }
-    
 }
 
 impl<T: VecElem> Display for Vec3<T> {
@@ -131,7 +132,4 @@ impl<T: VecElem> std::ops::Div<T> for Vec3<T> {
             _padding: T::zero(),
         }
     }
-}
-
-impl<T: VecElem>  for Vec3<T> {
 }
