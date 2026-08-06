@@ -12,12 +12,13 @@ fn main() -> Result<()> {
     // image
     const ASPECT_RATIO: Float = 16. / 9.;
     const IMAGE_WIDTH: usize = 400;
+    const SAMPLES_PER_PIXEL: usize = 100;
 
     const OUTPUT_DIR: &str = "output";
 
     tracing_subscriber::fmt::init();
 
-    let cam = Camera::new(ASPECT_RATIO, IMAGE_WIDTH);
+    let mut cam = Camera::new(ASPECT_RATIO, IMAGE_WIDTH, SAMPLES_PER_PIXEL);
 
     let world = HittableList::new(vec![
         Box::new(Sphere::new(Vec3::new(0.0, 0.0, -1.0), 0.5)),

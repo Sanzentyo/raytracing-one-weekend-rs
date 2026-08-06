@@ -1,4 +1,5 @@
 use indicatif::{ProgressBar, ProgressStyle};
+use rand::prelude::*;
 use tracing::info;
 
 use crate::Float;
@@ -14,22 +15,27 @@ use std::range::Range;
 
 pub struct Camera {
     #[allow(dead_code)]
-    aspect_ratio: Float,        // Aspect ratio of the rendered image
+    aspect_ratio: Float, // Aspect ratio of the rendered image
     image_width: usize,         // Rendered image width
     image_height: usize,        // Rendered image height
+    samples_per_pixel: usize,   // Number of samples per pixel
+    pixel_samples_scale: Float, // Color scale factor for a sum of pixel samples
     center: Vec3<Float>,        // Camera center
     pixel00_loc: Vec3<Float>,   // Location of pixel 0, 0
     pixel_delta_u: Vec3<Float>, // Offset to pixel to the right
     pixel_delta_v: Vec3<Float>, // Offset to pixel below
+    thread_rng: ThreadRng,
 }
 
 impl Camera {
-    pub fn new(aspect_ratio: Float, image_width: usize) -> Self {
+    pub fn new(aspect_ratio: Float, image_width: usize, samples_per_pixel: usize) -> Self {
         let image_height = (image_width as Float / aspect_ratio).round() as usize;
         assert!(
             image_width > 0 && image_height > 0,
             "image width and height must be positive"
         );
+
+        let pixel_samples_scale = 1.0 / samples_per_pixel as Float;
 
         let center = Vec3::new(0.0, 0.0, 0.0);
 
@@ -48,14 +54,27 @@ impl Camera {
             aspect_ratio,
             image_width,
             image_height,
+            samples_per_pixel,
+            pixel_samples_scale,
             center,
             pixel00_loc,
             pixel_delta_u,
             pixel_delta_v,
+            thread_rng: rand::rng(),
         }
     }
 
-    pub fn render(&self, world: &impl Hittable<Float>) -> BinaryPpmBuf {
+    pub fn get_ray(&mut self, x: usize, y: usize) -> Ray<Float> {
+        // Construct a camera ray originating from the origin and directed at randomly sampled
+        // point around the pixel location x, y.
+        let offset = self.sample_square();
+        let pixel_sample = self.pixel00_loc
+            + self.pixel_delta_u * (x as Float + offset.x)
+            + self.pixel_delta_v * (y as Float + offset.y);
+        Ray::new(self.center, pixel_sample - self.center)
+    }
+
+    pub fn render(&mut self, world: &impl Hittable<Float>) -> BinaryPpmBuf {
         info!("Rendering image...");
 
         let deps = (self.image_width * self.image_height) as u64;
@@ -78,14 +97,19 @@ impl Camera {
                     info!("Rendering row {y}...");
                 }
 
-                let pixel_center =
-                    self.pixel00_loc + self.pixel_delta_u * x as Float + self.pixel_delta_v * y as Float;
-                let ray_dir = pixel_center - self.center;
+                let mut color = Vec3::zero();
+                (0..self.samples_per_pixel).for_each(|_| {
+                    let ray = self.get_ray(x, y);
+                    color += Self::ray_color(&ray, world);
+                });
 
-                let ray = Ray::new(self.center, ray_dir);
+                color *= self.pixel_samples_scale;
 
-                let color = Self::ray_color(&ray, world);
-                *pixel = [Self::to_u8(color.x), Self::to_u8(color.y), Self::to_u8(color.z)];
+                *pixel = [
+                    Self::to_u8(color.x),
+                    Self::to_u8(color.y),
+                    Self::to_u8(color.z),
+                ];
                 pb.inc(1);
             });
         pb.with_finish(indicatif::ProgressFinish::WithMessage(Cow::Borrowed(
@@ -112,6 +136,16 @@ impl Camera {
 
     #[inline(always)]
     const fn to_u8(v: Float) -> u8 {
-        (v * 255.999).round() as u8
+        (v.clamp(0.0, 0.999) * 256.0).round() as u8
+    }
+
+    /// Returns the vector to a random point in the [-0.5, 0.5]
+    #[inline(always)]
+    fn sample_square(&mut self) -> Vec3<Float> {
+        Vec3::new(
+            self.thread_rng.random_range(0.0..1.0) - 0.5,
+            self.thread_rng.random_range(0.0..1.0) - 0.5,
+            0.0,
+        )
     }
 }

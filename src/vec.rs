@@ -1,8 +1,8 @@
-use num_traits::{Float, Num};
+use num_traits::{Float, Num, NumAssign};
 use std::{fmt::Display, ops::Neg};
 
-pub trait VecElem: Copy + Num + Float + Default + Display {}
-impl<T: Copy + Num + Float + Default + Display> VecElem for T {}
+pub trait VecElem: Copy + Num + NumAssign + Float + Default + Display {}
+impl<T: Copy + Num + NumAssign + Float + Default + Display> VecElem for T {}
 
 #[derive(Debug, Clone, Copy)]
 #[repr(C, align(16))]
@@ -145,5 +145,37 @@ impl<T: VecElem> std::ops::Div<T> for Vec3<T> {
             z: self.z / rhs,
             _padding: T::zero(),
         }
+    }
+}
+
+impl<T: VecElem> std::ops::AddAssign<Vec3<T>> for Vec3<T> {
+    fn add_assign(&mut self, rhs: Vec3<T>) {
+        self.x += rhs.x;
+        self.y += rhs.y;
+        self.z += rhs.z;
+    }
+}
+
+impl<T: VecElem> std::ops::SubAssign<Vec3<T>> for Vec3<T> {
+    fn sub_assign(&mut self, rhs: Vec3<T>) {
+        self.x -= rhs.x;
+        self.y -= rhs.y;
+        self.z -= rhs.z;
+    }
+}
+
+impl<T: VecElem> std::ops::MulAssign<T> for Vec3<T> {
+    fn mul_assign(&mut self, rhs: T) {
+        self.x *= rhs;
+        self.y *= rhs;
+        self.z *= rhs;
+    }
+}
+
+impl<T: VecElem> std::ops::DivAssign<T> for Vec3<T> {
+    fn div_assign(&mut self, rhs: T) {
+        self.x /= rhs;
+        self.y /= rhs;
+        self.z /= rhs;
     }
 }
